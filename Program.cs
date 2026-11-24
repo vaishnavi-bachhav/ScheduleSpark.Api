@@ -13,6 +13,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
     return new MongoClient(settings.ConnectionString);
 });
 builder.Services.AddSingleton<MongoDbContext>();
+builder.Services.AddScoped<DatabaseSeeder>();
 
 builder.Services.AddScoped<IOfferingRepository, OfferingRepository>();
 builder.Services.AddScoped<IInstructorRepository, InstructorRepository>();
@@ -39,6 +40,12 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+    await scope.ServiceProvider
+        .GetRequiredService<DatabaseSeeder>()
+        .SeedAsync();
+}
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {

@@ -57,7 +57,9 @@ public sealed class ScheduledSection
     public string CourseOfferingId { get; set; } = "";
     public string CourseCode { get; set; } = "";
     public string InstructorId { get; set; } = "";
+    public string InstructorName { get; set; } = "";
     public string RoomId { get; set; } = "";
+    public string RoomNumber { get; set; } = "";
     public string Day { get; set; } = "";
     public string TimeBlock { get; set; } = "";
     public bool IsLab { get; set; }
