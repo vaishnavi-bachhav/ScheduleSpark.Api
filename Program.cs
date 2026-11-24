@@ -2,6 +2,7 @@ using MongoDB.Driver;
 using ScheduleSpark.Api.Infrastructure;
 using ScheduleSpark.Api.Repositories;
 using ScheduleSpark.Api.Services;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,13 +26,26 @@ builder.Services.AddScoped<IDraftService, DraftService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "ScheduleSpark API",
+        Version = "v1",
+        Description = "Course scheduling assistant API"
+    });
+});
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint(
+        "/swagger/v1/swagger.json",
+        "ScheduleSpark API v1");
+});
 app.UseCors("Frontend");
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "ScheduleSpark.Api" }));
