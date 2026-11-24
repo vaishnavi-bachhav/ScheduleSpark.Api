@@ -75,3 +75,13 @@ public sealed class ScheduleDraft : MongoEntity
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
+
+public sealed class ConflictDetail
+{
+    public string Code { get; set; } = "";
+    public string Severity { get; set; } = "Required";
+    public string CourseCode { get; set; } = "";
+    public string Category { get; set; } = "";
+    public string Message { get; set; } = "";
+    public string SuggestedAction { get; set; } = "Review the assignment and regenerate the draft.";
+}
