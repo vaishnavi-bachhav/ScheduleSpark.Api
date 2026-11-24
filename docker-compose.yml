@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    ports: ["8080:8080"]
+    environment:
+      MongoDb__ConnectionString: mongodb://mongo:27017
+      MongoDb__DatabaseName: schedulespark
+    depends_on: [mongo]
+  mongo:
+    image: mongo:8
+    ports: ["27017:27017"]
+    volumes: [schedulespark-data:/data/db]
+volumes:
+  schedulespark-data:

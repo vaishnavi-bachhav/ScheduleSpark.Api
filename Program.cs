@@ -1,0 +1,38 @@
+using MongoDB.Driver;
+using ScheduleSpark.Api.Infrastructure;
+using ScheduleSpark.Api.Repositories;
+using ScheduleSpark.Api.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDb"));
+builder.Services.AddSingleton<IMongoClient>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoDbSettings>>().Value;
+    return new MongoClient(settings.ConnectionString);
+});
+builder.Services.AddSingleton<MongoDbContext>();
+
+builder.Services.AddScoped<IOfferingRepository, OfferingRepository>();
+builder.Services.AddScoped<IInstructorRepository, InstructorRepository>();
+builder.Services.AddScoped<IRoomRepository, RoomRepository>();
+builder.Services.AddScoped<IConstraintRepository, ConstraintRepository>();
+builder.Services.AddScoped<IDraftRepository, DraftRepository>();
+builder.Services.AddScoped<IPlanningService, PlanningService>();
+builder.Services.AddScoped<ISchedulingService, SchedulingService>();
+builder.Services.AddScoped<IConflictService, ConflictService>();
+builder.Services.AddScoped<IDraftService, DraftService>();
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
+    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
+var app = builder.Build();
+app.UseSwagger();
+app.UseSwaggerUI();
+app.UseCors("Frontend");
+app.MapControllers();
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "ScheduleSpark.Api" }));
+app.Run();
