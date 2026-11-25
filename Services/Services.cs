@@ -107,7 +107,7 @@ public sealed class SchedulingService(IOfferingRepository offerings, IInstructor
     }
 }
 
-public sealed class ConflictService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms) : IConflictService
+public sealed class ConflictService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IConflictService
 {
     public async Task<List<string>> ValidateAsync(ScheduleDraft draft)
     {
@@ -121,6 +121,10 @@ public sealed class ConflictService(IOfferingRepository offerings, IInstructorRe
         var courses = await Task.WhenAll(draft.Sections.Select(x => offerings.GetAsync(x.CourseOfferingId)));
         var instructorsList = await instructors.GetAllAsync();
         var roomsList = await rooms.GetAllAsync();
+        var enabledRules = await constraints.GetEnabledAsync();
+        static string NormalizeRuleName(string name) => string.Concat(name.Where(char.IsLetterOrDigit));
+        var enabledRuleNames = enabledRules.Select(x => NormalizeRuleName(x.Name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool RuleEnabled(params string[] names) => names.Any(name => enabledRuleNames.Contains(NormalizeRuleName(name)));
         var courseById = courses.Where(x => x is not null).ToDictionary(x => x!.Id, x => x!);
         foreach (var section in draft.Sections)
         {
@@ -129,31 +133,31 @@ public sealed class ConflictService(IOfferingRepository offerings, IInstructorRe
             var room = roomsList.FirstOrDefault(x => x.Id == section.RoomId);
             if (course is null) conflicts.Add(new ConflictDetail { Code = "COURSE_NOT_FOUND", CourseCode = section.CourseCode, Category = "Course data", Message = $"{section.CourseCode}: offering not found.", SuggestedAction = "Return to the Planning Workspace and select a valid offering." });
             if (instructor is null) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_UNASSIGNED", CourseCode = section.CourseCode, Category = "Instructor assignment", Message = $"{section.CourseCode}: instructor is not assigned.", SuggestedAction = "Assign a qualified instructor who is available for this time block." });
-            else if (course is not null && !instructor.QualifiedCourses.Contains(course.CourseCode, StringComparer.OrdinalIgnoreCase)) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_UNQUALIFIED", CourseCode = section.CourseCode, Category = "Instructor qualification", Message = $"{section.CourseCode}: {instructor.Name} is not qualified to teach this course.", SuggestedAction = "Assign an instructor qualified for this course." });
-            else if (instructor is not null && !instructor.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Instructor availability", Message = $"{section.CourseCode}: {instructor.Name} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose one of the instructor's available blocks." });
+            else if (course is not null && RuleEnabled("Instructor qualification") && !instructor.QualifiedCourses.Contains(course.CourseCode, StringComparer.OrdinalIgnoreCase)) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_UNQUALIFIED", CourseCode = section.CourseCode, Category = "Instructor qualification", Message = $"{section.CourseCode}: {instructor.Name} is not qualified to teach this course.", SuggestedAction = "Assign an instructor qualified for this course." });
+            else if (RuleEnabled("Instructor availability") && !instructor.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Instructor availability", Message = $"{section.CourseCode}: {instructor.Name} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose one of the instructor's available blocks." });
             if (room is null) conflicts.Add(new ConflictDetail { Code = "ROOM_UNASSIGNED", CourseCode = section.CourseCode, Category = "Room assignment", Message = $"{section.CourseCode}: room is not assigned.", SuggestedAction = "Assign an available room with sufficient capacity and the required room type." });
-            else if (course is not null && room.Capacity < course.PredictedEnrollment) conflicts.Add(new ConflictDetail { Code = "ROOM_CAPACITY", CourseCode = section.CourseCode, Category = "Room capacity", Message = $"{section.CourseCode}: predicted enrollment is {course.PredictedEnrollment}, but {room.RoomNumber} has capacity {room.Capacity}.", SuggestedAction = "Assign a larger room or revise the predicted enrollment." });
+            else if (course is not null && RuleEnabled("Room capacity") && room.Capacity < course.PredictedEnrollment) conflicts.Add(new ConflictDetail { Code = "ROOM_CAPACITY", CourseCode = section.CourseCode, Category = "Room capacity", Message = $"{section.CourseCode}: predicted enrollment is {course.PredictedEnrollment}, but {room.RoomNumber} has capacity {room.Capacity}.", SuggestedAction = "Assign a larger room or revise the predicted enrollment." });
             if (room is not null && course is not null)
             {
                 var expectedRoomType = course.RequiresLab ? "Lab" : "Lecture";
-                if (!room.RoomType.Equals(expectedRoomType, StringComparison.OrdinalIgnoreCase)) conflicts.Add(new ConflictDetail { Code = "ROOM_TYPE_MISMATCH", CourseCode = section.CourseCode, Category = "Room type", Message = $"{section.CourseCode}: requires a {expectedRoomType} room, but {room.RoomNumber} is a {room.RoomType} room.", SuggestedAction = $"Assign a {expectedRoomType.ToLowerInvariant()} room." });
-                if (!room.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "ROOM_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Room availability", Message = $"{section.CourseCode}: {room.RoomNumber} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose a time block when the room is available." });
+                if (course.RequiresLab && RuleEnabled("Required laboratory room") && !room.RoomType.Equals("Lab", StringComparison.OrdinalIgnoreCase)) conflicts.Add(new ConflictDetail { Code = "ROOM_TYPE_MISMATCH", CourseCode = section.CourseCode, Category = "Room type", Message = $"{section.CourseCode}: requires a laboratory room, but {room.RoomNumber} is a {room.RoomType} room.", SuggestedAction = "Assign a laboratory room." });
+                if (RuleEnabled("Room availability") && !room.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "ROOM_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Room availability", Message = $"{section.CourseCode}: {room.RoomNumber} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose a time block when the room is available." });
             }
         }
         foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => new { x.InstructorId, x.Day, x.TimeBlock }))
         {
             var courseCodes = group.Select(x => x.CourseCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Instructor overlap", Message = $"Instructor {group.Key.InstructorId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Move one course to another available time block or instructor." });
+            if (group.Count() > 1 && RuleEnabled("Avoid instructor time conflicts")) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Instructor overlap", Message = $"Instructor {group.Key.InstructorId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Move one course to another available time block or instructor." });
         }
         foreach (var group in draft.Sections.Where(x => x.RoomId != "").GroupBy(x => new { x.RoomId, x.Day, x.TimeBlock }))
         {
             var courseCodes = group.Select(x => x.CourseCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "ROOM_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Room overlap", Message = $"Room {group.Key.RoomId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Assign a different room or move one course to another time block." });
+            if (group.Count() > 1 && RuleEnabled("Avoid room conflicts")) conflicts.Add(new ConflictDetail { Code = "ROOM_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Room overlap", Message = $"Room {group.Key.RoomId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Assign a different room or move one course to another time block." });
         }
         foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => x.InstructorId))
         {
             var instructor = instructorsList.FirstOrDefault(x => x.Id == group.Key);
-            if (instructor is not null && group.Count() > instructor.MaximumCourseLoad) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_MAX_LOAD", CourseCode = string.Join(", ", group.Select(x => x.CourseCode)), Category = "Instructor workload", Message = $"{instructor.Name} is assigned {group.Count()} courses, exceeding the maximum load of {instructor.MaximumCourseLoad}.", SuggestedAction = "Reassign courses to instructors with available load." });
+            if (instructor is not null && RuleEnabled("Instructor maximum load") && group.Count() > instructor.MaximumCourseLoad) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_MAX_LOAD", CourseCode = string.Join(", ", group.Select(x => x.CourseCode)), Category = "Instructor workload", Message = $"{instructor.Name} is assigned {group.Count()} courses, exceeding the maximum load of {instructor.MaximumCourseLoad}.", SuggestedAction = "Reassign courses to instructors with available load." });
         }
         return conflicts;
     }
