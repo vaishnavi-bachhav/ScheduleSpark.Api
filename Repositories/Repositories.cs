@@ -9,6 +9,7 @@ public interface IInstructorRepository { Task<List<Instructor>> GetAllAsync(); T
 public interface IRoomRepository { Task<List<Room>> GetAllAsync(); Task<Room?> GetAsync(string id); Task AddAsync(Room item); Task UpdateAsync(Room item); Task DeleteAsync(string id); }
 public interface IConstraintRepository { Task<List<SchedulingConstraint>> GetAllAsync(); Task<List<SchedulingConstraint>> GetEnabledAsync(); Task AddAsync(SchedulingConstraint item); Task UpdateAsync(SchedulingConstraint item); Task DeleteAsync(string id); }
 public interface IDraftRepository { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task AddAsync(ScheduleDraft draft); Task UpdateAsync(ScheduleDraft draft); Task DeleteAsync(string id); }
+public interface IDraftVersionRepository { Task<List<ScheduleDraftVersion>> GetByDraftIdAsync(string draftId); Task<ScheduleDraftVersion?> GetAsync(string draftId, int versionNumber); Task AddAsync(ScheduleDraftVersion version); Task DeleteByDraftIdAsync(string draftId); }
 
 public sealed class OfferingRepository(MongoDbContext db) : IOfferingRepository
 {
@@ -47,4 +48,11 @@ public sealed class DraftRepository(MongoDbContext db) : IDraftRepository
     public Task AddAsync(ScheduleDraft draft) => db.Drafts.InsertOneAsync(draft);
     public Task UpdateAsync(ScheduleDraft draft) => db.Drafts.ReplaceOneAsync(x => x.Id == draft.Id, draft);
     public Task DeleteAsync(string id) => db.Drafts.DeleteOneAsync(x => x.Id == id);
+}
+public sealed class DraftVersionRepository(MongoDbContext db) : IDraftVersionRepository
+{
+    public Task<List<ScheduleDraftVersion>> GetByDraftIdAsync(string draftId) => db.DraftVersions.Find(x => x.DraftId == draftId).SortByDescending(x => x.VersionNumber).ToListAsync();
+    public Task<ScheduleDraftVersion?> GetAsync(string draftId, int versionNumber) => db.DraftVersions.Find(x => x.DraftId == draftId && x.VersionNumber == versionNumber).FirstOrDefaultAsync();
+    public Task AddAsync(ScheduleDraftVersion version) => db.DraftVersions.InsertOneAsync(version);
+    public Task DeleteByDraftIdAsync(string draftId) => db.DraftVersions.DeleteManyAsync(x => x.DraftId == draftId);
 }

@@ -15,4 +15,5 @@ public sealed class MongoDbContext
     public IMongoCollection<Room> Rooms => _database.GetCollection<Room>("rooms");
     public IMongoCollection<SchedulingConstraint> Constraints => _database.GetCollection<SchedulingConstraint>("constraints");
     public IMongoCollection<ScheduleDraft> Drafts => _database.GetCollection<ScheduleDraft>("drafts");
+    public IMongoCollection<ScheduleDraftVersion> DraftVersions => _database.GetCollection<ScheduleDraftVersion>("draftVersions");
 }

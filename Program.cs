@@ -20,6 +20,7 @@ builder.Services.AddScoped<IInstructorRepository, InstructorRepository>();
 builder.Services.AddScoped<IRoomRepository, RoomRepository>();
 builder.Services.AddScoped<IConstraintRepository, ConstraintRepository>();
 builder.Services.AddScoped<IDraftRepository, DraftRepository>();
+builder.Services.AddScoped<IDraftVersionRepository, DraftVersionRepository>();
 builder.Services.AddScoped<IPlanningService, PlanningService>();
 builder.Services.AddScoped<ISchedulingService, SchedulingService>();
 builder.Services.AddScoped<IConflictService, ConflictService>();

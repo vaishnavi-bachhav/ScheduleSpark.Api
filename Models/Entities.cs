@@ -76,6 +76,15 @@ public sealed class ScheduleDraft : MongoEntity
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedAtUtc { get; set; } = DateTime.UtcNow;
+    public int VersionNumber { get; set; } = 1;
+}
+
+public sealed class ScheduleDraftVersion : MongoEntity
+{
+    public string DraftId { get; set; } = "";
+    public int VersionNumber { get; set; }
+    public DateTime ModifiedAtUtc { get; set; } = DateTime.UtcNow;
+    public ScheduleDraft Snapshot { get; set; } = new();
 }
 
 public sealed class ConflictDetail

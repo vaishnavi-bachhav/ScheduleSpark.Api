@@ -14,6 +14,8 @@ public sealed class SchedulesController(ISchedulingService scheduling, IConflict
     [HttpPost("drafts")] public async Task<ActionResult<ScheduleDraft>> SaveDraft(ScheduleDraft draft) => Ok(await drafts.SaveAsync(draft));
     [HttpDelete("drafts/{id}")] public async Task<IActionResult> DeleteDraft(string id) => await drafts.DeleteAsync(id) ? NoContent() : NotFound(new { message = "Draft not found." });
     [HttpPost("drafts/{id}/duplicate")] public async Task<ActionResult<ScheduleDraft>> DuplicateDraft(string id) { var duplicate = await drafts.DuplicateAsync(id); return duplicate is null ? NotFound(new { message = "Draft not found." }) : Ok(duplicate); }
+    [HttpGet("drafts/{id}/versions")] public async Task<IActionResult> GetDraftVersions(string id) { var versions = await drafts.GetVersionsAsync(id); return versions is null ? NotFound(new { message = "Draft not found." }) : Ok(versions); }
+    [HttpPost("drafts/{id}/versions/{versionNumber:int}/restore")] public async Task<IActionResult> RestoreDraftVersion(string id, int versionNumber) { var restored = await drafts.RestoreVersionAsync(id, versionNumber); return restored is null ? NotFound(new { message = "Draft version not found." }) : Ok(restored); }
     [HttpPut("drafts/{draftId}/sections/{courseCode}")]
     public async Task<IActionResult> EditSection(string draftId, string courseCode, EditScheduleSectionRequest request)
     {

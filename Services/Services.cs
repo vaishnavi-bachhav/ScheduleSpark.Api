@@ -6,7 +6,7 @@ namespace ScheduleSpark.Api.Services;
 public interface IPlanningService { Task<object> GetWorkspaceAsync(string semester); Task<CourseOffering> CreateOfferingAsync(CreateOfferingRequest request); }
 public interface ISchedulingService { Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request); }
 public interface IConflictService { Task<List<string>> ValidateAsync(ScheduleDraft draft); Task<List<ConflictDetail>> ValidateDetailedAsync(ScheduleDraft draft); }
-public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); Task<bool> DeleteAsync(string id); Task<ScheduleDraft?> DuplicateAsync(string id); }
+public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); Task<bool> DeleteAsync(string id); Task<ScheduleDraft?> DuplicateAsync(string id); Task<List<ScheduleDraftVersion>?> GetVersionsAsync(string id); Task<ScheduleDraft?> RestoreVersionAsync(string id, int versionNumber); }
 public interface IScheduleEditService { Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request); }
 
 public sealed class PlanningService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IPlanningService
@@ -212,66 +212,135 @@ internal static class SchedulingAvailability
         && SlotKey(availableDay, availableTime) == SlotKey(day, timeBlock);
 }
 
-public sealed class DraftService(IDraftRepository drafts) : IDraftService
+public sealed class DraftService(IDraftRepository drafts, IDraftVersionRepository versions) : IDraftService
 {
-    public Task<List<ScheduleDraft>> GetAllAsync() => drafts.GetAllAsync(); public Task<ScheduleDraft?> GetAsync(string id) => drafts.GetAsync(id);
+    public Task<List<ScheduleDraft>> GetAllAsync() => drafts.GetAllAsync();
+    public Task<ScheduleDraft?> GetAsync(string id) => drafts.GetAsync(id);
+
     public async Task<bool> DeleteAsync(string id)
     {
         if (await drafts.GetAsync(id) is null) return false;
         await drafts.DeleteAsync(id);
+        await versions.DeleteByDraftIdAsync(id);
         return true;
     }
+
     public async Task<ScheduleDraft?> DuplicateAsync(string id)
     {
         var source = await drafts.GetAsync(id);
         if (source is null) return null;
 
         var now = DateTime.UtcNow;
-        var duplicate = new ScheduleDraft
-        {
-            Name = $"{source.Name} copy",
-            Semester = source.Semester,
-            Sections = source.Sections.Select(section => new ScheduledSection
-            {
-                CourseOfferingId = section.CourseOfferingId,
-                CourseCode = section.CourseCode,
-                InstructorId = section.InstructorId,
-                InstructorName = section.InstructorName,
-                RoomId = section.RoomId,
-                RoomNumber = section.RoomNumber,
-                Day = section.Day,
-                TimeBlock = section.TimeBlock,
-                IsLab = section.IsLab
-            }).ToList(),
-            RequiredViolationCount = source.RequiredViolationCount,
-            PreferenceScore = source.PreferenceScore,
-            Status = source.Status,
-            CreatedAtUtc = now,
-            LastModifiedAtUtc = now
-        };
+        var duplicate = CopyDraft(source);
+        duplicate.Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        duplicate.Name = $"{(string.IsNullOrWhiteSpace(source.Name) ? "Untitled schedule draft" : source.Name)} copy";
+        duplicate.CreatedAtUtc = now;
+        duplicate.LastModifiedAtUtc = now;
+        duplicate.VersionNumber = 1;
         await drafts.AddAsync(duplicate);
         return duplicate;
     }
+
+    public async Task<List<ScheduleDraftVersion>?> GetVersionsAsync(string id)
+    {
+        var current = await drafts.GetAsync(id);
+        if (current is null) return null;
+        var history = await versions.GetByDraftIdAsync(id);
+        history.Add(new ScheduleDraftVersion
+        {
+            DraftId = id,
+            VersionNumber = Math.Max(1, current.VersionNumber),
+            ModifiedAtUtc = current.LastModifiedAtUtc,
+            Snapshot = CopyDraft(current)
+        });
+        return history.OrderByDescending(item => item.VersionNumber).ToList();
+    }
+
+    public async Task<ScheduleDraft?> RestoreVersionAsync(string id, int versionNumber)
+    {
+        var snapshot = await versions.GetAsync(id, versionNumber);
+        if (snapshot is null) return null;
+        var restored = CopyDraft(snapshot.Snapshot);
+        restored.Id = id;
+        return await SaveAsync(restored);
+    }
+
     public async Task<ScheduleDraft> SaveAsync(ScheduleDraft draft)
     {
-        if (string.IsNullOrWhiteSpace(draft.Name))
-            draft.Name = $"{draft.Semester} Draft";
-
+        if (string.IsNullOrWhiteSpace(draft.Name)) draft.Name = $"{draft.Semester} Draft";
         var now = DateTime.UtcNow;
-        draft.CreatedAtUtc = draft.CreatedAtUtc == default ? now : draft.CreatedAtUtc;
-        draft.LastModifiedAtUtc = now;
-
         var existing = await drafts.GetAsync(draft.Id);
         if (existing is null)
+        {
+            draft.VersionNumber = Math.Max(1, draft.VersionNumber);
+            draft.CreatedAtUtc = draft.CreatedAtUtc == default ? now : draft.CreatedAtUtc;
+            draft.LastModifiedAtUtc = now;
             await drafts.AddAsync(draft);
-        else
-            await drafts.UpdateAsync(draft);
+            return draft;
+        }
 
+        if (!HasChanges(existing, draft)) return existing;
+
+        var currentVersion = Math.Max(1, existing.VersionNumber);
+        await versions.AddAsync(new ScheduleDraftVersion
+        {
+            DraftId = existing.Id,
+            VersionNumber = currentVersion,
+            ModifiedAtUtc = existing.LastModifiedAtUtc,
+            Snapshot = CopyDraft(existing)
+        });
+        draft.VersionNumber = currentVersion + 1;
+        draft.CreatedAtUtc = existing.CreatedAtUtc;
+        draft.LastModifiedAtUtc = now;
+        await drafts.UpdateAsync(draft);
         return draft;
     }
+
+    private static bool HasChanges(ScheduleDraft before, ScheduleDraft after)
+    {
+        if (before.Name != after.Name || before.Semester != after.Semester || before.Status != after.Status
+            || before.RequiredViolationCount != after.RequiredViolationCount || before.PreferenceScore != after.PreferenceScore
+            || before.Sections.Count != after.Sections.Count) return true;
+
+        for (var i = 0; i < before.Sections.Count; i++)
+        {
+            var left = before.Sections[i];
+            var right = after.Sections[i];
+            if (left.CourseOfferingId != right.CourseOfferingId || left.CourseCode != right.CourseCode
+                || left.InstructorId != right.InstructorId || left.InstructorName != right.InstructorName
+                || left.RoomId != right.RoomId || left.RoomNumber != right.RoomNumber || left.Day != right.Day
+                || left.TimeBlock != right.TimeBlock || left.IsLab != right.IsLab) return true;
+        }
+        return false;
+    }
+
+    private static ScheduleDraft CopyDraft(ScheduleDraft source) => new()
+    {
+        Id = source.Id,
+        Name = source.Name,
+        Semester = source.Semester,
+        Sections = source.Sections.Select(section => new ScheduledSection
+        {
+            CourseOfferingId = section.CourseOfferingId,
+            CourseCode = section.CourseCode,
+            InstructorId = section.InstructorId,
+            InstructorName = section.InstructorName,
+            RoomId = section.RoomId,
+            RoomNumber = section.RoomNumber,
+            Day = section.Day,
+            TimeBlock = section.TimeBlock,
+            IsLab = section.IsLab
+        }).ToList(),
+        RequiredViolationCount = source.RequiredViolationCount,
+        PreferenceScore = source.PreferenceScore,
+        Status = source.Status,
+        CreatedAtUtc = source.CreatedAtUtc,
+        LastModifiedAtUtc = source.LastModifiedAtUtc,
+        VersionNumber = source.VersionNumber
+    };
 }
 
-public sealed class ScheduleEditService(IDraftRepository drafts, IConflictService conflicts, IInstructorRepository instructors,
+public sealed class ScheduleEditService(IDraftService drafts, IConflictService conflicts, IInstructorRepository instructors,
     IRoomRepository rooms) : IScheduleEditService
 {
     public async Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request)
@@ -297,8 +366,7 @@ public sealed class ScheduleEditService(IDraftRepository drafts, IConflictServic
         var details = await conflicts.ValidateDetailedAsync(draft);
         draft.RequiredViolationCount = details.Count;
         draft.Status = details.Count == 0 ? "Valid" : "Needs Review";
-        draft.LastModifiedAtUtc = DateTime.UtcNow;
-        await drafts.UpdateAsync(draft);
-        return (draft, details);
+        var savedDraft = await drafts.SaveAsync(draft);
+        return (savedDraft, details);
     }
 }
