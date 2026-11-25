@@ -14,10 +14,14 @@ public sealed class CourseOffering : MongoEntity
     public string CourseCode { get; set; } = "";
     public string CourseTitle { get; set; } = "";
     public string Semester { get; set; } = "Fall 2026";
+    public string ProgramLevel { get; set; } = "Graduate";
+
     public int Credits { get; set; }
     public int HistoricalEnrollment { get; set; }
     public int PredictedEnrollment { get; set; }
     public bool RequiresLab { get; set; }
+    public bool IsActive { get; set; } = true;
+
     public List<string> RequiredEquipment { get; set; } = [];
     public string? CrossListedWith { get; set; }
     public string? CoLocationGroup { get; set; }
