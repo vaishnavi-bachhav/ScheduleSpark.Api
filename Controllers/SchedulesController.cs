@@ -13,6 +13,7 @@ public sealed class SchedulesController(ISchedulingService scheduling, IConflict
     [HttpGet("drafts/{id}")] public async Task<ActionResult<ScheduleDraft>> GetDraft(string id) { var d = await drafts.GetAsync(id); return d is null ? NotFound() : Ok(d); }
     [HttpPost("drafts")] public async Task<ActionResult<ScheduleDraft>> SaveDraft(ScheduleDraft draft) => Ok(await drafts.SaveAsync(draft));
     [HttpDelete("drafts/{id}")] public async Task<IActionResult> DeleteDraft(string id) => await drafts.DeleteAsync(id) ? NoContent() : NotFound(new { message = "Draft not found." });
+    [HttpPost("drafts/{id}/duplicate")] public async Task<ActionResult<ScheduleDraft>> DuplicateDraft(string id) { var duplicate = await drafts.DuplicateAsync(id); return duplicate is null ? NotFound(new { message = "Draft not found." }) : Ok(duplicate); }
     [HttpPut("drafts/{draftId}/sections/{courseCode}")]
     public async Task<IActionResult> EditSection(string draftId, string courseCode, EditScheduleSectionRequest request)
     {

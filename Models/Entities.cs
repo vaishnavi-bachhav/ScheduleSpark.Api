@@ -18,6 +18,7 @@ public sealed class CourseOffering : MongoEntity
     public int HistoricalEnrollment { get; set; }
     public int PredictedEnrollment { get; set; }
     public bool RequiresLab { get; set; }
+    public List<string> RequiredEquipment { get; set; } = [];
     public string? CrossListedWith { get; set; }
     public string? CoLocationGroup { get; set; }
 }
@@ -74,6 +75,7 @@ public sealed class ScheduleDraft : MongoEntity
     public double PreferenceScore { get; set; }
     public string Status { get; set; } = "Draft";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime LastModifiedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
 public sealed class ConflictDetail

@@ -13,7 +13,7 @@ public sealed class DatabaseSeeder(MongoDbContext db)
                 new CourseOffering { CourseCode="CSI 410", CourseTitle="Database Systems", Semester="Fall 2026", Credits=3, HistoricalEnrollment=32, PredictedEnrollment=35 },
                 new CourseOffering { CourseCode="CSI 435", CourseTitle="Computer Networks", Semester="Fall 2026", Credits=3, HistoricalEnrollment=24, PredictedEnrollment=25 },
                 new CourseOffering { CourseCode="CSI 450", CourseTitle="Software Engineering", Semester="Fall 2026", Credits=3, HistoricalEnrollment=38, PredictedEnrollment=40 },
-                new CourseOffering { CourseCode="CSI 472", CourseTitle="Artificial Intelligence Lab", Semester="Fall 2026", Credits=3, HistoricalEnrollment=18, PredictedEnrollment=20, RequiresLab=true }
+                new CourseOffering { CourseCode="CSI 472", CourseTitle="Artificial Intelligence Lab", Semester="Fall 2026", Credits=3, HistoricalEnrollment=18, PredictedEnrollment=20, RequiresLab=true, RequiredEquipment=["Computers", "Network equipment"] }
             ]);
         if (await db.Instructors.CountDocumentsAsync(FilterDefinition<Instructor>.Empty) == 0)
             await db.Instructors.InsertManyAsync([
@@ -48,6 +48,7 @@ public sealed class DatabaseSeeder(MongoDbContext db)
                 new SchedulingConstraint { Name="Instructor availability", Description="Schedule instructors only during their available teaching blocks.", Type="Required", Priority=1, Source="Instructor profile" },
                 new SchedulingConstraint { Name="Room capacity", Description="Room capacity must meet predicted enrollment.", Type="Required", Priority=1, Source="Department rule" },
                 new SchedulingConstraint { Name="Required laboratory room", Description="Courses requiring a lab must be assigned to a laboratory room.", Type="Required", Priority=1, Source="Course requirement" },
+                new SchedulingConstraint { Name="Required room equipment", Description="Assigned rooms must provide all equipment required by the course.", Type="Required", Priority=1, Source="Course requirement" },
                 new SchedulingConstraint { Name="Instructor maximum load", Description="Do not assign an instructor more courses than their maximum course load.", Type="Required", Priority=1, Source="Instructor profile" },
                 new SchedulingConstraint { Name="Avoid instructor time conflicts", Description="An instructor cannot teach more than one course in the same time block.", Type="Required", Priority=1, Source="Department rule" },
                 new SchedulingConstraint { Name="Avoid room conflicts", Description="A room cannot be assigned to two courses at the same time.", Type="Required", Priority=1, Source="Department rule" },

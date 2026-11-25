@@ -6,7 +6,7 @@ namespace ScheduleSpark.Api.Services;
 public interface IPlanningService { Task<object> GetWorkspaceAsync(string semester); Task<CourseOffering> CreateOfferingAsync(CreateOfferingRequest request); }
 public interface ISchedulingService { Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request); }
 public interface IConflictService { Task<List<string>> ValidateAsync(ScheduleDraft draft); Task<List<ConflictDetail>> ValidateDetailedAsync(ScheduleDraft draft); }
-public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); Task<bool> DeleteAsync(string id); }
+public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); Task<bool> DeleteAsync(string id); Task<ScheduleDraft?> DuplicateAsync(string id); }
 public interface IScheduleEditService { Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request); }
 
 public sealed class PlanningService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IPlanningService
@@ -23,18 +23,20 @@ public sealed class PlanningService(IOfferingRepository offerings, IInstructorRe
     public async Task<CourseOffering> CreateOfferingAsync(CreateOfferingRequest r)
     {
         if (string.IsNullOrWhiteSpace(r.CourseCode) || string.IsNullOrWhiteSpace(r.CourseTitle)) throw new ArgumentException("Course code and title are required.");
-        var item = new CourseOffering { CourseCode = r.CourseCode, CourseTitle = r.CourseTitle, Semester = r.Semester, Credits = r.Credits, HistoricalEnrollment = r.HistoricalEnrollment, PredictedEnrollment = r.PredictedEnrollment, RequiresLab = r.RequiresLab, CrossListedWith = r.CrossListedWith, CoLocationGroup = r.CoLocationGroup };
+        var item = new CourseOffering { CourseCode = r.CourseCode, CourseTitle = r.CourseTitle, Semester = r.Semester, Credits = r.Credits, HistoricalEnrollment = r.HistoricalEnrollment, PredictedEnrollment = r.PredictedEnrollment, RequiresLab = r.RequiresLab, RequiredEquipment = r.RequiredEquipment ?? [], CrossListedWith = r.CrossListedWith, CoLocationGroup = r.CoLocationGroup };
         await offerings.AddAsync(item); return item;
     }
 }
 
-public sealed class SchedulingService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConflictService conflicts, IDraftRepository drafts) : ISchedulingService
+public sealed class SchedulingService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints, IConflictService conflicts, IDraftRepository drafts) : ISchedulingService
 {
     public async Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request)
     {
         var all = await offerings.GetBySemesterAsync(request.Semester);
         var selected = request.OfferingIds.Count == 0 ? all : all.Where(x => request.OfferingIds.Contains(x.Id)).ToList();
         var ins = await instructors.GetAllAsync(); var rms = await rooms.GetAllAsync();
+        var enabledConstraints = await constraints.GetEnabledAsync();
+        var equipmentRuleEnabled = enabledConstraints.Any(x => NormalizeRuleName(x.Name) == NormalizeRuleName("Required room equipment"));
         var draft = new ScheduleDraft { Name = $"{request.Semester} Draft {DateTime.UtcNow:yyyyMMddHHmm}", Semester = request.Semester };
         var instructorLoads = ins.ToDictionary(x => x.Id, _ => 0);
         var assignedInstructors = new HashSet<(string InstructorId, string Slot)>();
@@ -49,7 +51,8 @@ public sealed class SchedulingService(IOfferingRepository offerings, IInstructor
             var requiredRoomType = course.RequiresLab ? "Lab" : "Lecture";
             var roomCandidates = rms
                 .Where(x => x.Capacity >= course.PredictedEnrollment
-                    && x.RoomType.Equals(requiredRoomType, StringComparison.OrdinalIgnoreCase))
+                    && x.RoomType.Equals(requiredRoomType, StringComparison.OrdinalIgnoreCase)
+                    && (!equipmentRuleEnabled || HasRequiredEquipment(x, course)))
                 .ToList();
 
             (Instructor Instructor, Room Room, string Day, string TimeBlock)? assignment = null;
@@ -105,6 +108,11 @@ public sealed class SchedulingService(IOfferingRepository offerings, IInstructor
 
         return draft;
     }
+
+    private static string NormalizeRuleName(string name) => string.Concat(name.Where(char.IsLetterOrDigit));
+
+    private static bool HasRequiredEquipment(Room room, CourseOffering course) =>
+        (course.RequiredEquipment ?? []).All(required => (room.Equipment ?? []).Contains(required, StringComparer.OrdinalIgnoreCase));
 }
 
 public sealed class ConflictService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IConflictService
@@ -125,6 +133,8 @@ public sealed class ConflictService(IOfferingRepository offerings, IInstructorRe
         static string NormalizeRuleName(string name) => string.Concat(name.Where(char.IsLetterOrDigit));
         var enabledRuleNames = enabledRules.Select(x => NormalizeRuleName(x.Name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         bool RuleEnabled(params string[] names) => names.Any(name => enabledRuleNames.Contains(NormalizeRuleName(name)));
+        static bool HasRequiredEquipment(Room room, CourseOffering course) =>
+            (course.RequiredEquipment ?? []).All(required => (room.Equipment ?? []).Contains(required, StringComparer.OrdinalIgnoreCase));
         var courseById = courses.Where(x => x is not null).ToDictionary(x => x!.Id, x => x!);
         foreach (var section in draft.Sections)
         {
@@ -142,6 +152,24 @@ public sealed class ConflictService(IOfferingRepository offerings, IInstructorRe
                 var expectedRoomType = course.RequiresLab ? "Lab" : "Lecture";
                 if (course.RequiresLab && RuleEnabled("Required laboratory room") && !room.RoomType.Equals("Lab", StringComparison.OrdinalIgnoreCase)) conflicts.Add(new ConflictDetail { Code = "ROOM_TYPE_MISMATCH", CourseCode = section.CourseCode, Category = "Room type", Message = $"{section.CourseCode}: requires a laboratory room, but {room.RoomNumber} is a {room.RoomType} room.", SuggestedAction = "Assign a laboratory room." });
                 if (RuleEnabled("Room availability") && !room.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "ROOM_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Room availability", Message = $"{section.CourseCode}: {room.RoomNumber} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose a time block when the room is available." });
+                if (RuleEnabled("Required room equipment"))
+                {
+                    var missingEquipment = (course.RequiredEquipment ?? [])
+                        .Where(required => !(room.Equipment ?? []).Contains(required, StringComparer.OrdinalIgnoreCase))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    if (missingEquipment.Count > 0) conflicts.Add(new ConflictDetail { Code = "ROOM_EQUIPMENT_MISSING", CourseCode = section.CourseCode, Category = "Room equipment", Message = $"{section.CourseCode} cannot use {room.RoomNumber} because it is missing required equipment: {string.Join(", ", missingEquipment)}.", SuggestedAction = "Assign a room with the required equipment or update the course requirements." });
+                }
+            }
+            else if (room is null && course is not null && RuleEnabled("Required room equipment"))
+            {
+                var expectedRoomType = course.RequiresLab ? "Lab" : "Lecture";
+                var potentialRooms = roomsList.Where(candidate => candidate.Capacity >= course.PredictedEnrollment && candidate.RoomType.Equals(expectedRoomType, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (potentialRooms.Count > 0 && !potentialRooms.Any(candidate => HasRequiredEquipment(candidate, course)))
+                {
+                    var missingEquipment = (course.RequiredEquipment ?? []).Where(required => potentialRooms.All(candidate => !(candidate.Equipment ?? []).Contains(required, StringComparer.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (missingEquipment.Count > 0) conflicts.Add(new ConflictDetail { Code = "ROOM_EQUIPMENT_MISSING", CourseCode = section.CourseCode, Category = "Room equipment", Message = $"{section.CourseCode} has no suitable room with the required equipment: {string.Join(", ", missingEquipment)}.", SuggestedAction = "Add a room with the required equipment or update the course requirements." });
+                }
             }
         }
         foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => new { x.InstructorId, x.Day, x.TimeBlock }))
@@ -193,14 +221,45 @@ public sealed class DraftService(IDraftRepository drafts) : IDraftService
         await drafts.DeleteAsync(id);
         return true;
     }
+    public async Task<ScheduleDraft?> DuplicateAsync(string id)
+    {
+        var source = await drafts.GetAsync(id);
+        if (source is null) return null;
+
+        var now = DateTime.UtcNow;
+        var duplicate = new ScheduleDraft
+        {
+            Name = $"{source.Name} copy",
+            Semester = source.Semester,
+            Sections = source.Sections.Select(section => new ScheduledSection
+            {
+                CourseOfferingId = section.CourseOfferingId,
+                CourseCode = section.CourseCode,
+                InstructorId = section.InstructorId,
+                InstructorName = section.InstructorName,
+                RoomId = section.RoomId,
+                RoomNumber = section.RoomNumber,
+                Day = section.Day,
+                TimeBlock = section.TimeBlock,
+                IsLab = section.IsLab
+            }).ToList(),
+            RequiredViolationCount = source.RequiredViolationCount,
+            PreferenceScore = source.PreferenceScore,
+            Status = source.Status,
+            CreatedAtUtc = now,
+            LastModifiedAtUtc = now
+        };
+        await drafts.AddAsync(duplicate);
+        return duplicate;
+    }
     public async Task<ScheduleDraft> SaveAsync(ScheduleDraft draft)
     {
         if (string.IsNullOrWhiteSpace(draft.Name))
             draft.Name = $"{draft.Semester} Draft";
 
-        draft.CreatedAtUtc = draft.CreatedAtUtc == default
-            ? DateTime.UtcNow
-            : draft.CreatedAtUtc;
+        var now = DateTime.UtcNow;
+        draft.CreatedAtUtc = draft.CreatedAtUtc == default ? now : draft.CreatedAtUtc;
+        draft.LastModifiedAtUtc = now;
 
         var existing = await drafts.GetAsync(draft.Id);
         if (existing is null)
@@ -238,6 +297,7 @@ public sealed class ScheduleEditService(IDraftRepository drafts, IConflictServic
         var details = await conflicts.ValidateDetailedAsync(draft);
         draft.RequiredViolationCount = details.Count;
         draft.Status = details.Count == 0 ? "Valid" : "Needs Review";
+        draft.LastModifiedAtUtc = DateTime.UtcNow;
         await drafts.UpdateAsync(draft);
         return (draft, details);
     }
