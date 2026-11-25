@@ -7,6 +7,7 @@ public interface IPlanningService { Task<object> GetWorkspaceAsync(string semest
 public interface ISchedulingService { Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request); }
 public interface IConflictService { Task<List<string>> ValidateAsync(ScheduleDraft draft); Task<List<ConflictDetail>> ValidateDetailedAsync(ScheduleDraft draft); }
 public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); }
+public interface IScheduleEditService { Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request); }
 
 public sealed class PlanningService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IPlanningService
 {
@@ -27,7 +28,7 @@ public sealed class PlanningService(IOfferingRepository offerings, IInstructorRe
     }
 }
 
-public sealed class SchedulingService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConflictService conflicts) : ISchedulingService
+public sealed class SchedulingService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConflictService conflicts, IDraftRepository drafts) : ISchedulingService
 {
     public async Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request)
     {
@@ -41,7 +42,16 @@ public sealed class SchedulingService(IOfferingRepository offerings, IInstructor
             var course = selected[i]; var instructor = ins.FirstOrDefault(x => x.QualifiedCourses.Contains(course.CourseCode)); var room = rms.FirstOrDefault(x => x.Capacity >= course.PredictedEnrollment && (!course.RequiresLab || x.RoomType.Equals("Lab", StringComparison.OrdinalIgnoreCase)));
             var b = blocks[i % blocks.Length]; draft.Sections.Add(new ScheduledSection { CourseOfferingId = course.Id, CourseCode = course.CourseCode, InstructorId = instructor?.Id ?? "", InstructorName = instructor?.Name ?? "Instructor unassigned", RoomId = room?.Id ?? "", RoomNumber = room?.RoomNumber ?? "Room unassigned", Day = b.Item1, TimeBlock = b.Item2, IsLab = course.RequiresLab });
         }
-        draft.RequiredViolationCount = (await conflicts.ValidateAsync(draft)).Count; draft.Status = draft.RequiredViolationCount == 0 ? "Valid" : "Needs Review"; return draft;
+        var validationErrors = await conflicts.ValidateDetailedAsync(draft);
+
+        draft.RequiredViolationCount = validationErrors.Count;
+        draft.Status = validationErrors.Count == 0
+            ? "Valid"
+            : "Needs Review";
+
+        await drafts.AddAsync(draft);
+
+        return draft;
     }
 }
 
@@ -88,5 +98,36 @@ public sealed class DraftService(IDraftRepository drafts) : IDraftService
             await drafts.UpdateAsync(draft);
 
         return draft;
+    }
+}
+
+public sealed class ScheduleEditService(IDraftRepository drafts, IConflictService conflicts, IInstructorRepository instructors,
+    IRoomRepository rooms) : IScheduleEditService
+{
+    public async Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request)
+    {
+        var draft = await drafts.GetAsync(draftId);
+        if (draft is null) return (null, []);
+
+        var section = draft.Sections.FirstOrDefault(x => x.CourseCode.Equals(courseCode, StringComparison.OrdinalIgnoreCase));
+        if (section is null) return (draft, [new ConflictDetail { Code = "COURSE_NOT_IN_DRAFT", CourseCode = courseCode, Category = "Schedule edit", Message = $"{courseCode} is not present in this draft.", SuggestedAction = "Open a draft containing the selected course." }]);
+
+        var instructor = await instructors.GetAsync(request.InstructorId);
+        var room = await rooms.GetAsync(request.RoomId);
+
+        section.InstructorId = request.InstructorId;
+        section.InstructorName = instructor?.Name ?? "Instructor unassigned";
+
+        section.RoomId = request.RoomId;
+        section.RoomNumber = room?.RoomNumber ?? "Room unassigned";
+
+        section.Day = request.Day;
+        section.TimeBlock = request.TimeBlock;
+
+        var details = await conflicts.ValidateDetailedAsync(draft);
+        draft.RequiredViolationCount = details.Count;
+        draft.Status = details.Count == 0 ? "Valid" : "Needs Review";
+        await drafts.UpdateAsync(draft);
+        return (draft, details);
     }
 }

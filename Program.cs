@@ -24,6 +24,7 @@ builder.Services.AddScoped<IPlanningService, PlanningService>();
 builder.Services.AddScoped<ISchedulingService, SchedulingService>();
 builder.Services.AddScoped<IConflictService, ConflictService>();
 builder.Services.AddScoped<IDraftService, DraftService>();
+builder.Services.AddScoped<IScheduleEditService, ScheduleEditService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -42,9 +43,7 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
 var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider
-        .GetRequiredService<DatabaseSeeder>()
-        .SeedAsync();
+    await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
 }
 app.UseSwagger();
 app.UseSwaggerUI(options =>
