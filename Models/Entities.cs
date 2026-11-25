@@ -31,6 +31,15 @@ public sealed class Instructor : MongoEntity
     public List<string> AvailableBlocks { get; set; } = [];
     public int MaximumCourseLoad { get; set; } = 2;
     public bool PrefersBackToBack { get; set; }
+    [BsonIgnore]
+    public List<string>? SemesterAvailableBlocks { get; set; }
+}
+
+public sealed class InstructorSemesterAvailability : MongoEntity
+{
+    public string InstructorId { get; set; } = "";
+    public string Semester { get; set; } = "";
+    public List<string> AvailableBlocks { get; set; } = [];
 }
 
 public sealed class Room : MongoEntity
@@ -51,6 +60,38 @@ public sealed class SchedulingConstraint : MongoEntity
     public int Priority { get; set; } = 1;
     public bool Enabled { get; set; } = true;
     public string Source { get; set; } = "Department rule";
+}
+
+public sealed class ScheduleBlockConfiguration : MongoEntity
+{
+    public string Semester { get; set; } = "Fall 2026";
+    public List<UniversityScheduleBlock> Blocks { get; set; } = [];
+}
+
+public sealed class UniversityScheduleBlock
+{
+    public string TimeBlock { get; set; } = "";
+    public string Label { get; set; } = "";
+    public string Category { get; set; } = "Normal";
+    public List<string> CourseTypes { get; set; } = ["Lecture", "Laboratory"];
+    public bool Enabled { get; set; } = true;
+}
+
+public static class UniversityScheduleBlocks
+{
+    public static List<UniversityScheduleBlock> Defaults() =>
+    [
+        new() { TimeBlock = "08:00-09:20", Label = "8:00–9:20 AM" },
+        new() { TimeBlock = "09:20-10:10", Label = "9:20–10:10 AM" },
+        new() { TimeBlock = "10:10-11:30", Label = "10:10–11:30 AM" },
+        new() { TimeBlock = "11:40-13:00", Label = "11:40 AM–1:00 PM" },
+        new() { TimeBlock = "13:30-14:50", Label = "1:30–2:50 PM" },
+        new() { TimeBlock = "15:00-16:20", Label = "3:00–4:20 PM" },
+        new() { TimeBlock = "16:30-17:50", Label = "4:30–5:50 PM" },
+        new() { TimeBlock = "18:00-19:20", Label = "6:00–7:20 PM", Category = "Evening" },
+        new() { TimeBlock = "19:30-20:50", Label = "7:30–8:50 PM", Category = "Evening" },
+        new() { TimeBlock = "ASYNC", Label = "Asynchronous", Category = "Asynchronous" },
+    ];
 }
 
 public sealed class ScheduledSection

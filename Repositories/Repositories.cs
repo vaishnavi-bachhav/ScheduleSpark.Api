@@ -8,6 +8,8 @@ public interface IOfferingRepository { Task<List<CourseOffering>> GetBySemesterA
 public interface IInstructorRepository { Task<List<Instructor>> GetAllAsync(); Task<Instructor?> GetAsync(string id); Task AddAsync(Instructor item); Task UpdateAsync(Instructor item); Task DeleteAsync(string id); }
 public interface IRoomRepository { Task<List<Room>> GetAllAsync(); Task<Room?> GetAsync(string id); Task AddAsync(Room item); Task UpdateAsync(Room item); Task DeleteAsync(string id); }
 public interface IConstraintRepository { Task<List<SchedulingConstraint>> GetAllAsync(); Task<List<SchedulingConstraint>> GetEnabledAsync(); Task AddAsync(SchedulingConstraint item); Task UpdateAsync(SchedulingConstraint item); Task DeleteAsync(string id); }
+public interface IScheduleBlockConfigurationRepository { Task<ScheduleBlockConfiguration> GetOrCreateAsync(string semester); Task UpdateAsync(ScheduleBlockConfiguration configuration); }
+public interface IInstructorAvailabilityRepository { Task<List<InstructorSemesterAvailability>> GetBySemesterAsync(string semester); Task<InstructorSemesterAvailability?> GetAsync(string instructorId, string semester); Task SaveAsync(InstructorSemesterAvailability availability); }
 public interface IDraftRepository { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task AddAsync(ScheduleDraft draft); Task UpdateAsync(ScheduleDraft draft); Task DeleteAsync(string id); }
 public interface IDraftVersionRepository { Task<List<ScheduleDraftVersion>> GetByDraftIdAsync(string draftId); Task<ScheduleDraftVersion?> GetAsync(string draftId, int versionNumber); Task AddAsync(ScheduleDraftVersion version); Task DeleteByDraftIdAsync(string draftId); }
 
@@ -40,6 +42,24 @@ public sealed class ConstraintRepository(MongoDbContext db) : IConstraintReposit
     public Task AddAsync(SchedulingConstraint item) => db.Constraints.InsertOneAsync(item);
     public Task UpdateAsync(SchedulingConstraint item) => db.Constraints.ReplaceOneAsync(x => x.Id == item.Id, item);
     public Task DeleteAsync(string id) => db.Constraints.DeleteOneAsync(x => x.Id == id);
+}
+public sealed class ScheduleBlockConfigurationRepository(MongoDbContext db) : IScheduleBlockConfigurationRepository
+{
+    public async Task<ScheduleBlockConfiguration> GetOrCreateAsync(string semester)
+    {
+        var existing = await db.ScheduleBlockConfigurations.Find(x => x.Semester == semester).FirstOrDefaultAsync();
+        if (existing is not null) return existing;
+        var configuration = new ScheduleBlockConfiguration { Semester = semester, Blocks = UniversityScheduleBlocks.Defaults() };
+        await db.ScheduleBlockConfigurations.InsertOneAsync(configuration);
+        return configuration;
+    }
+    public Task UpdateAsync(ScheduleBlockConfiguration configuration) => db.ScheduleBlockConfigurations.ReplaceOneAsync(x => x.Semester == configuration.Semester, configuration, new ReplaceOptions { IsUpsert = true });
+}
+public sealed class InstructorAvailabilityRepository(MongoDbContext db) : IInstructorAvailabilityRepository
+{
+    public Task<List<InstructorSemesterAvailability>> GetBySemesterAsync(string semester) => db.InstructorSemesterAvailabilities.Find(x => x.Semester == semester).ToListAsync();
+    public async Task<InstructorSemesterAvailability?> GetAsync(string instructorId, string semester) => await db.InstructorSemesterAvailabilities.Find(x => x.InstructorId == instructorId && x.Semester == semester).FirstOrDefaultAsync();
+    public Task SaveAsync(InstructorSemesterAvailability availability) => db.InstructorSemesterAvailabilities.ReplaceOneAsync(x => x.InstructorId == availability.InstructorId && x.Semester == availability.Semester, availability, new ReplaceOptions { IsUpsert = true });
 }
 public sealed class DraftRepository(MongoDbContext db) : IDraftRepository
 {

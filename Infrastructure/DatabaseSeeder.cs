@@ -17,15 +17,15 @@ public sealed class DatabaseSeeder(MongoDbContext db)
             ]);
         if (await db.Instructors.CountDocumentsAsync(FilterDefinition<Instructor>.Empty) == 0)
             await db.Instructors.InsertManyAsync([
-                new Instructor { Name="Dr. Priya Shah", QualifiedCourses=["CSI 402", "CSI 410"], PreferredCourses=["CSI 410"], AvailableBlocks=["Monday 09:00-10:15", "Wednesday 09:00-10:15"], MaximumCourseLoad=2, PrefersBackToBack=true },
-                new Instructor { Name="Dr. Michael Chen", QualifiedCourses=["CSI 435", "CSI 472"], PreferredCourses=["CSI 435"], AvailableBlocks=["Tuesday 10:30-11:45", "Thursday 10:30-11:45"], MaximumCourseLoad=2 },
-                new Instructor { Name="Dr. Elena Garcia", QualifiedCourses=["CSI 450", "CSI 472"], PreferredCourses=["CSI 450"], AvailableBlocks=["Wednesday 13:00-14:15", "Thursday 15:00-16:15"], MaximumCourseLoad=2 }
+                new Instructor { Name="Dr. Priya Shah", QualifiedCourses=["CSI 402", "CSI 410"], PreferredCourses=["CSI 410"], AvailableBlocks=["Monday 09:20-10:10", "Wednesday 09:20-10:10"], MaximumCourseLoad=2, PrefersBackToBack=true },
+                new Instructor { Name="Dr. Michael Chen", QualifiedCourses=["CSI 435", "CSI 472"], PreferredCourses=["CSI 435"], AvailableBlocks=["Tuesday 10:10-11:30", "Thursday 10:10-11:30"], MaximumCourseLoad=2 },
+                new Instructor { Name="Dr. Elena Garcia", QualifiedCourses=["CSI 450", "CSI 472"], PreferredCourses=["CSI 450"], AvailableBlocks=["Wednesday 13:30-14:50", "Thursday 15:00-16:20"], MaximumCourseLoad=2 }
             ]);
         if (await db.Rooms.CountDocumentsAsync(FilterDefinition<Room>.Empty) == 0)
             await db.Rooms.InsertManyAsync([
-                new Room { RoomNumber="D-101", Building="Draper", Capacity=40, RoomType="Lecture", Equipment=["Projector", "Whiteboard"], AvailableBlocks=["Monday 09:00-10:15", "Tuesday 10:30-11:45", "Wednesday 13:00-14:15"] },
-                new Room { RoomNumber="D-202", Building="Draper", Capacity=50, RoomType="Lecture", Equipment=["Projector", "Computer"], AvailableBlocks=["Monday 09:00-10:15", "Thursday 15:00-16:15"] },
-                new Room { RoomNumber="LAB-1", Building="Draper", Capacity=25, RoomType="Lab", Equipment=["Computers", "Network equipment"], AvailableBlocks=["Tuesday 10:30-11:45", "Thursday 10:30-11:45"] }
+                new Room { RoomNumber="D-101", Building="Draper", Capacity=40, RoomType="Lecture", Equipment=["Projector", "Whiteboard"], AvailableBlocks=["Monday 09:20-10:10", "Tuesday 10:10-11:30", "Wednesday 13:30-14:50"] },
+                new Room { RoomNumber="D-202", Building="Draper", Capacity=50, RoomType="Lecture", Equipment=["Projector", "Computer"], AvailableBlocks=["Monday 09:20-10:10", "Thursday 15:00-16:20"] },
+                new Room { RoomNumber="LAB-1", Building="Draper", Capacity=25, RoomType="Lab", Equipment=["Computers", "Network equipment"], AvailableBlocks=["Tuesday 10:10-11:30", "Thursday 10:10-11:30"] }
             ]);
         var existingConstraints = await db.Constraints.Find(FilterDefinition<SchedulingConstraint>.Empty).ToListAsync();
         var legacyConstraintNames = new[]
