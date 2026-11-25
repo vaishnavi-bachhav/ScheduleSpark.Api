@@ -27,12 +27,23 @@ public sealed class DatabaseSeeder(MongoDbContext db)
                 new Room { RoomNumber="D-202", Building="Draper", Capacity=50, RoomType="Lecture", Equipment=["Projector", "Computer"], AvailableBlocks=["Monday 09:00-10:15", "Thursday 15:00-16:15"] },
                 new Room { RoomNumber="LAB-1", Building="Draper", Capacity=25, RoomType="Lab", Equipment=["Computers", "Network equipment"], AvailableBlocks=["Tuesday 10:30-11:45", "Thursday 10:30-11:45"] }
             ]);
-        if (await db.Constraints.CountDocumentsAsync(FilterDefinition<SchedulingConstraint>.Empty) == 0)
-            await db.Constraints.InsertManyAsync([
+        var defaultConstraints = new[]
+            {
+                new SchedulingConstraint { Name="Instructor availability", Description="Schedule instructors only during their available teaching blocks.", Type="Required", Priority=1, Source="Instructor profile" },
                 new SchedulingConstraint { Name="Room capacity", Description="Room capacity must meet predicted enrollment.", Type="Required", Priority=1, Source="Department rule" },
-                new SchedulingConstraint { Name="Instructor qualification", Description="Instructor must be qualified to teach the course.", Type="Required", Priority=1, Source="Department rule" },
-                new SchedulingConstraint { Name="No room overlap", Description="A room cannot be assigned to two courses at the same time.", Type="Required", Priority=1, Source="Department rule" },
-                new SchedulingConstraint { Name="Instructor preference", Description="Prefer courses and time blocks selected by the instructor.", Type="Preference", Priority=2, Source="Instructor preference" }
-            ]);
+                new SchedulingConstraint { Name="Required laboratory room", Description="Courses requiring a lab must be assigned to a laboratory room.", Type="Required", Priority=1, Source="Course requirement" },
+                new SchedulingConstraint { Name="Instructor maximum load", Description="Do not assign an instructor more courses than their maximum course load.", Type="Required", Priority=1, Source="Instructor profile" },
+                new SchedulingConstraint { Name="Avoid instructor time conflicts", Description="An instructor cannot teach more than one course in the same time block.", Type="Required", Priority=1, Source="Department rule" },
+                new SchedulingConstraint { Name="Avoid room conflicts", Description="A room cannot be assigned to two courses at the same time.", Type="Required", Priority=1, Source="Department rule" },
+                new SchedulingConstraint { Name="Preferred time blocks", Description="Prefer time blocks selected by instructors when possible.", Type="Preference", Priority=2, Source="Instructor preference" }
+            };
+        var existingConstraintNames = await db.Constraints.Find(FilterDefinition<SchedulingConstraint>.Empty)
+            .Project(x => x.Name)
+            .ToListAsync();
+        var missingConstraints = defaultConstraints
+            .Where(item => !existingConstraintNames.Contains(item.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (missingConstraints.Count > 0)
+            await db.Constraints.InsertManyAsync(missingConstraints);
     }
 }
