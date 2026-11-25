@@ -81,6 +81,7 @@ public sealed class ConflictDetail
     public string Code { get; set; } = "";
     public string Severity { get; set; } = "Required";
     public string CourseCode { get; set; } = "";
+    public List<string> AffectedCourseCodes { get; set; } = [];
     public string Category { get; set; } = "";
     public string Message { get; set; } = "";
     public string SuggestedAction { get; set; } = "Review the assignment and regenerate the draft.";

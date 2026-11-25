@@ -6,7 +6,7 @@ namespace ScheduleSpark.Api.Services;
 public interface IPlanningService { Task<object> GetWorkspaceAsync(string semester); Task<CourseOffering> CreateOfferingAsync(CreateOfferingRequest request); }
 public interface ISchedulingService { Task<ScheduleDraft> GenerateDraftAsync(GenerateDraftRequest request); }
 public interface IConflictService { Task<List<string>> ValidateAsync(ScheduleDraft draft); Task<List<ConflictDetail>> ValidateDetailedAsync(ScheduleDraft draft); }
-public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); }
+public interface IDraftService { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task<ScheduleDraft> SaveAsync(ScheduleDraft draft); Task<bool> DeleteAsync(string id); }
 public interface IScheduleEditService { Task<(ScheduleDraft? Draft, List<ConflictDetail> Conflicts)> EditSectionAsync(string draftId, string courseCode, EditScheduleSectionRequest request); }
 
 public sealed class PlanningService(IOfferingRepository offerings, IInstructorRepository instructors, IRoomRepository rooms, IConstraintRepository constraints) : IPlanningService
@@ -140,8 +140,16 @@ public sealed class ConflictService(IOfferingRepository offerings, IInstructorRe
                 if (!room.AvailableBlocks.Any(block => SchedulingAvailability.Matches(block, section.Day, section.TimeBlock))) conflicts.Add(new ConflictDetail { Code = "ROOM_UNAVAILABLE", CourseCode = section.CourseCode, Category = "Room availability", Message = $"{section.CourseCode}: {room.RoomNumber} is not available on {section.Day} at {section.TimeBlock}.", SuggestedAction = "Choose a time block when the room is available." });
             }
         }
-        foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => new { x.InstructorId, x.Day, x.TimeBlock })) if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_OVERLAP", CourseCode = string.Join(", ", group.Select(x => x.CourseCode)), Category = "Instructor overlap", Message = $"Instructor {group.Key.InstructorId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Move one course to another available time block or instructor." });
-        foreach (var group in draft.Sections.Where(x => x.RoomId != "").GroupBy(x => new { x.RoomId, x.Day, x.TimeBlock })) if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "ROOM_OVERLAP", CourseCode = string.Join(", ", group.Select(x => x.CourseCode)), Category = "Room overlap", Message = $"Room {group.Key.RoomId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Assign a different room or move one course to another time block." });
+        foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => new { x.InstructorId, x.Day, x.TimeBlock }))
+        {
+            var courseCodes = group.Select(x => x.CourseCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "INSTRUCTOR_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Instructor overlap", Message = $"Instructor {group.Key.InstructorId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Move one course to another available time block or instructor." });
+        }
+        foreach (var group in draft.Sections.Where(x => x.RoomId != "").GroupBy(x => new { x.RoomId, x.Day, x.TimeBlock }))
+        {
+            var courseCodes = group.Select(x => x.CourseCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (group.Count() > 1) conflicts.Add(new ConflictDetail { Code = "ROOM_OVERLAP", CourseCode = string.Join(", ", courseCodes), AffectedCourseCodes = courseCodes, Category = "Room overlap", Message = $"Room {group.Key.RoomId} is assigned to multiple courses on {group.Key.Day} at {group.Key.TimeBlock}.", SuggestedAction = "Assign a different room or move one course to another time block." });
+        }
         foreach (var group in draft.Sections.Where(x => x.InstructorId != "").GroupBy(x => x.InstructorId))
         {
             var instructor = instructorsList.FirstOrDefault(x => x.Id == group.Key);
@@ -175,6 +183,12 @@ internal static class SchedulingAvailability
 public sealed class DraftService(IDraftRepository drafts) : IDraftService
 {
     public Task<List<ScheduleDraft>> GetAllAsync() => drafts.GetAllAsync(); public Task<ScheduleDraft?> GetAsync(string id) => drafts.GetAsync(id);
+    public async Task<bool> DeleteAsync(string id)
+    {
+        if (await drafts.GetAsync(id) is null) return false;
+        await drafts.DeleteAsync(id);
+        return true;
+    }
     public async Task<ScheduleDraft> SaveAsync(ScheduleDraft draft)
     {
         if (string.IsNullOrWhiteSpace(draft.Name))

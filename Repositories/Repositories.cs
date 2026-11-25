@@ -8,7 +8,7 @@ public interface IOfferingRepository { Task<List<CourseOffering>> GetBySemesterA
 public interface IInstructorRepository { Task<List<Instructor>> GetAllAsync(); Task<Instructor?> GetAsync(string id); Task AddAsync(Instructor item); Task UpdateAsync(Instructor item); Task DeleteAsync(string id); }
 public interface IRoomRepository { Task<List<Room>> GetAllAsync(); Task<Room?> GetAsync(string id); Task AddAsync(Room item); Task UpdateAsync(Room item); Task DeleteAsync(string id); }
 public interface IConstraintRepository { Task<List<SchedulingConstraint>> GetAllAsync(); Task<List<SchedulingConstraint>> GetEnabledAsync(); Task AddAsync(SchedulingConstraint item); Task UpdateAsync(SchedulingConstraint item); Task DeleteAsync(string id); }
-public interface IDraftRepository { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task AddAsync(ScheduleDraft draft); Task UpdateAsync(ScheduleDraft draft); }
+public interface IDraftRepository { Task<List<ScheduleDraft>> GetAllAsync(); Task<ScheduleDraft?> GetAsync(string id); Task AddAsync(ScheduleDraft draft); Task UpdateAsync(ScheduleDraft draft); Task DeleteAsync(string id); }
 
 public sealed class OfferingRepository(MongoDbContext db) : IOfferingRepository
 {
@@ -46,4 +46,5 @@ public sealed class DraftRepository(MongoDbContext db) : IDraftRepository
     public Task<ScheduleDraft?> GetAsync(string id) => db.Drafts.Find(x => x.Id == id).FirstOrDefaultAsync();
     public Task AddAsync(ScheduleDraft draft) => db.Drafts.InsertOneAsync(draft);
     public Task UpdateAsync(ScheduleDraft draft) => db.Drafts.ReplaceOneAsync(x => x.Id == draft.Id, draft);
+    public Task DeleteAsync(string id) => db.Drafts.DeleteOneAsync(x => x.Id == id);
 }
