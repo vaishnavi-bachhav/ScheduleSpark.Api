@@ -65,6 +65,11 @@ In that setup, use `http://localhost:8080` as `VITE_API_BASE_URL` in the fronten
 dotnet build ScheduleSpark.sln
 ```
 
+## Run 
+```sh
+dotnet run ScheduleSpark.sln
+```
+
 ## Startup data
 
 At startup, `DatabaseSeeder` adds example Fall 2026 offerings, instructors, and rooms when those collections are empty. It also adds missing default scheduling constraints and migrates two legacy constraint names. It does not overwrite non-empty course, instructor, or room collections. Approved schedule blocks are managed separately; configure them in the frontend under **Planning Workspace → University Blocks** before saving instructor availability or generating a schedule.
